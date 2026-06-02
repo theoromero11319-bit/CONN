@@ -1,0 +1,605 @@
+/* ==========================================================================
+   1. SYSTEM ROOT VIEWPORT LOCK & VARIABLES
+   ========================================================================== */
+:root {
+    --bg-gradient: linear-gradient(135deg, #eef2f7 0%, #dfe7f0 100%);
+    --panel-glass: rgba(255, 255, 255, 0.75);
+    --panel-border: rgba(255, 255, 255, 0.6);
+    --text-primary: #1e293b;
+    --text-muted: #64748b;
+    
+    /* Branding Colors */
+    --primary: #0284c7;         
+    --primary-light: #e0f2fe;
+    --success: #10b981;         
+    --warning: #f59e0b;         
+    --purple: #8b5cf6;          
+    
+    --radius-lg: 12px;
+    --radius-md: 8px;
+    --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* LOCK SCREEN: Stops the main browser window from ever displaying a global scrollbar */
+html, body {
+    height: 100vh;
+    margin: 0;
+    padding: 0;
+    overflow: hidden; 
+}
+
+body {
+    background: var(--bg-gradient);
+    color: var(--text-primary);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    display: flex; 
+    background-attachment: fixed;
+}
+
+/* ==========================================================================
+   2. FIXED HEAD-BAR LAYOUT REPAIR
+   ========================================================================== */
+.main-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    min-width: 0;
+}
+
+.app-header {
+    flex-shrink: 0; 
+    height: 60px; /* Comfortable spacing height */
+    background: rgba(255, 255, 255, 0.4);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--panel-border);
+    padding: 0 1.5rem;
+    
+    display: flex;
+    align-items: center;       /* Perfectly centers items vertically */
+    justify-content: space-between; /* Pushes Title left, User Info right */
+    box-sizing: border-box;
+}
+
+.app-header .title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #0f172a;
+    white-space: nowrap;       /* Prevents title from wrapping down */
+}
+
+/* ==========================================================================
+   3. MAIN WORKSPACE CONTENT CONTAINER
+   ========================================================================== */
+.main-content {
+    padding: 1rem 1.25rem; 
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 60px); 
+    gap: 0.75rem; /* Tighter gap between components to maximize workspace */
+    overflow-y: auto; /* Allows smooth fallback dashboard scrolling if elements stack */
+}
+
+/* ==========================================================================
+   4. SIDEBAR PANEL CONFIGURATION
+   ========================================================================== */
+.sidebar {
+    width: 260px;
+    min-width: 260px;
+    background: rgba(255, 255, 255, 0.65);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-right: 1px solid var(--panel-border);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.sidebar-brand {
+    height: 60px; /* Matches header */
+    display: flex;
+    align-items: center;
+    padding: 0 1.25rem;
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: #0f172a;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.5);
+    gap: 0.5rem;
+    box-sizing: border-box;
+}
+
+.sidebar-menu {
+    list-style: none;
+    margin: 0;
+    padding: 1rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex: 1;
+}
+
+.sidebar-item a {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.7rem 0.85rem;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.85rem;
+    border-radius: var(--radius-md);
+    transition: var(--transition);
+}
+
+.sidebar-item:not(.active):not(.disabled) a:hover {
+    background: rgba(2, 132, 199, 0.05);
+    color: var(--primary);
+    transform: translateX(4px);
+}
+
+.sidebar-item.active a {
+    background: var(--primary);
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
+}
+
+.sidebar-footer {
+    padding: 1rem;
+    background: rgba(248, 250, 252, 0.4);
+    border-top: 1px solid rgba(226, 232, 240, 0.6);
+}
+
+/* ==========================================================================
+   5. CONTROL FILTER PANEL OBJECTS
+   ========================================================================== */
+.panel {
+    background: var(--panel-glass);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-lg);
+    padding: 0.85rem 1.25rem; 
+    box-shadow: 0 4px 20px 0 rgba(148, 163, 184, 0.05);
+    flex-shrink: 0;
+}
+
+.filter-container {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.filter-group label {
+    font-weight: 700;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+}
+
+.glass-input, .glass-select {
+    background: rgba(255, 255, 255, 0.6) !important;
+    border: 1px solid rgba(226, 232, 240, 0.8) !important;
+    color: var(--text-primary) !important;
+    padding: 0.4rem 0.6rem;
+    border-radius: var(--radius-md);
+    font-size: 0.85rem;
+    outline: none;
+}
+
+.btn-submit {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 0.45rem 1.25rem;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+.btn-submit:hover {
+    background: #0369a1;
+}
+
+.btn-signout {
+    color: #ef4444;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.85rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: var(--radius-md);
+    background: rgba(239, 68, 68, 0.05);
+    transition: var(--transition);
+}
+.btn-signout:hover {
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* ==========================================================================
+   6. METRICS ARCHITECTURE (ROW 1 LIVE VS ROW 2 FILTERED)
+   ========================================================================== */
+.section-divider {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #475569;
+    font-weight: 700;
+    margin: 1.25rem 0 0.5rem 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+.section-divider::after {
+    content: ''; 
+    flex: 1; 
+    height: 2px; 
+    background: rgba(226, 232, 240, 0.7);
+}
+
+/* --- TIER 1: Today's Visualized Live Summary Row --- */
+.live-container-row {
+    display: grid; 
+    grid-template-columns: repeat(4, 1fr); 
+    gap: 1rem; 
+    margin-bottom: 0.5rem;
+    flex-shrink: 0;
+}
+.live-visual-card {
+    background: #ffffff; 
+    border: 1px solid #e2e8f0; 
+    border-radius: 12px; 
+    padding: 1.25rem;
+    position: relative; 
+    overflow: hidden; 
+    box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.05);
+    display: flex; 
+    flex-direction: column; 
+    justify-content: space-between; 
+    min-height: 125px;
+    box-sizing: border-box;
+}
+.live-visual-card::before {
+    content: ''; 
+    position: absolute; 
+    top: 0; 
+    left: 0; 
+    width: 100%; 
+    height: 4px;
+}
+.live-visual-card.c-traffic::before { background: #3b82f6; }
+.live-visual-card.c-active::before { background: #10b981; }
+.live-visual-card.c-mgh::before { background: #f59e0b; }
+.live-visual-card.c-disch::before { background: #ef4444; }
+
+.live-badge {
+    position: absolute; 
+    top: 12px; 
+    right: 12px; 
+    background: #f8fafc; 
+    border: 1px solid #e2e8f0;
+    padding: 2px 8px; 
+    border-radius: 20px; 
+    font-size: 0.65rem; 
+    font-weight: 700; 
+    color: #64748b;
+    display: flex; 
+    align-items: center; 
+    gap: 4px;
+}
+.live-badge span {
+    width: 6px; 
+    height: 6px; 
+    background: #64748b; 
+    border-radius: 50%; 
+    display: inline-block;
+}
+.live-visual-card.c-active .live-badge span,
+.live-visual-card.c-mgh .live-badge span { 
+    background: #10b981; 
+    animation: pulseGlow 2s infinite; 
+}
+
+@keyframes pulseGlow { 
+    0% { opacity: 0.4; } 
+    50% { opacity: 1; } 
+    100% { opacity: 0.4; } 
+}
+
+.live-val { 
+    font-size: 2.3rem; 
+    font-weight: 800; 
+    color: #0f172a; 
+    line-height: 1; 
+    margin: 8px 0; 
+}
+.live-lbl { 
+    font-size: 0.75rem; 
+    font-weight: 700; 
+    color: var(--text-muted); 
+    text-transform: uppercase; 
+}
+.live-sub { 
+    font-size: 0.7rem; 
+    color: #94a3b8; 
+}
+
+/* --- TIER 2: Filterable Index Analytical Cards --- */
+.filter-container-row {
+    display: grid; 
+    grid-template-columns: repeat(4, 1fr); 
+    gap: 1rem;
+    flex-shrink: 0;
+}
+.filter-metric-card {
+    background: #f8fafc; 
+    border: 1px dashed #cbd5e1; 
+    border-radius: 8px; 
+    padding: 1.2rem;
+    display: flex; 
+    flex-direction: column; 
+    justify-content: space-between; 
+    min-height: 115px;
+    box-sizing: border-box;
+}
+.filter-metric-card .f-lbl { font-size: 0.75rem; font-weight: 700; color: #475569; }
+.filter-metric-card .f-val { font-size: 1.9rem; font-weight: 800; color: #334155; margin: 4px 0; line-height: 1; }
+.filter-metric-card .f-sub { font-size: 0.7rem; color: #64748b; }
+
+.accordion-trigger-btn {
+    cursor: pointer; 
+    background: #e2e8f0 !important; 
+    border: 1px solid #cbd5e1 !important;
+    transition: var(--transition);
+}
+.accordion-trigger-btn:hover { 
+    background: #cbd5e1 !important; 
+    transform: translateY(-1px);
+}
+
+/* Legacy Core Metric Cards Layout Compatibility */
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem; 
+    flex-shrink: 0;
+}
+.metric-card {
+    background: var(--panel-glass);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-lg);
+    padding: 0.75rem 1.25rem; 
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+/* ==========================================================================
+   7. EXPANDABLE ROSTER DROPDOWN PANEL
+   ========================================================================== */
+.patient-dropdown-panel {
+    background: #ffffff; 
+    border: 1px solid #e2e8f0; 
+    border-radius: 8px;
+    margin-top: 0.5rem; 
+    padding: 1.25rem; 
+    display: none; 
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+    flex-shrink: 0;
+}
+.patient-dropdown-panel.open { 
+    display: block; 
+    animation: slideDown 0.25s ease-out; 
+}
+@keyframes slideDown { 
+    from { opacity: 0; transform: translateY(-8px); } 
+    to { opacity: 1; transform: translateY(0); } 
+}
+
+.roster-table { 
+    width: 100%; 
+    border-collapse: collapse; 
+    text-align: left; 
+    font-size: 0.85rem; 
+}
+.roster-table th { 
+    background: #f8fafc; 
+    color: #64748b; 
+    font-weight: 700; 
+    padding: 0.75rem; 
+    border-bottom: 2px solid #e2e8f0; 
+}
+.roster-table td { 
+    padding: 0.75rem; 
+    border-bottom: 1px solid #f1f5f9; 
+    color: #334155; 
+}
+.badge-type { 
+    padding: 2px 8px; 
+    border-radius: 12px; 
+    font-weight: 700; 
+    font-size: 0.75rem; 
+    display: inline-block; 
+}
+.badge-type.inpatient { background: #eff6ff; color: #2563eb; }
+.badge-type.outpatient { background: #fdf2f8; color: #db2777; }
+
+/* ==========================================================================
+   8. PATIENT TRACKING VIEWPORT LEDGER PANEL (TABLE AREA)
+   ========================================================================== */
+.panel-table-container {
+    background: var(--panel-glass);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-lg);
+    padding: 1rem 1.25rem;
+    box-shadow: 0 8px 32px 0 rgba(148, 163, 184, 0.08);
+    
+    flex: 1; 
+    display: flex;
+    flex-direction: column;
+    min-height: 0; 
+}
+
+.panel-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin-top: 0;
+    margin-bottom: 0.4rem;
+    color: #0f172a;
+    flex-shrink: 0;
+}
+
+.table-scroll-area {
+    flex: 1;            
+    overflow-y: auto;   
+    overflow-x: auto;   
+    margin-top: 0.4rem;
+    margin-bottom: 0.4rem;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(226, 232, 240, 0.6);
+    background: rgba(255, 255, 255, 0.2);
+    position: relative;
+    min-height: 340px; 
+}
+
+.custom-table {
+    width: 100%;
+    border-collapse: separate; 
+    border-spacing: 0;
+    font-size: 0.85rem; 
+    text-align: left;
+}
+
+.custom-table th {
+    position: -webkit-sticky;
+    position: sticky;
+    top: 0;                     
+    z-index: 100;               
+    background-color: #f8fafc !important; 
+    color: var(--text-muted);
+    font-weight: 700;
+    padding: 0.75rem 1rem; 
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    box-shadow: inset 0 -2px 0 rgba(226, 232, 240, 0.8);
+}
+
+.custom-table td {
+    padding: 0.8rem 1rem; 
+    border-bottom: 1px solid rgba(226, 232, 240, 0.5);
+    color: #334155;
+    vertical-align: middle;
+}
+
+.custom-table tr:hover td {
+    background-color: rgba(2, 132, 199, 0.03);
+}
+
+/* ==========================================================================
+   9. CHIPS, PAGINATION & LAYOUT ASSETS
+   ========================================================================== */
+.badge-id {
+    background: var(--primary-light);
+    color: var(--primary);
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-family: monospace;
+    font-weight: 700;
+    font-size: 0.8rem;
+}
+
+.text-truncate-custom {
+    max-width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-weight: 700;
+    font-size: 0.75rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 20px;
+}
+.status-chip.mgh { background: #f5f3ff; color: var(--purple); }
+.status-chip.standard { background: #f1f5f9; color: var(--text-muted); }
+.status-chip.discharged { background: #ecfdf5; color: var(--success); }
+.status-chip.inpatient { background: #fffbeb; color: var(--warning); }
+
+.pagination-controls {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(226, 232, 240, 0.7);
+}
+
+.btn-page {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    padding: 0.4rem 1rem;
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+.btn-page.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+/* --- SCROLLBAR STYLE ENHANCEMENTS --- */
+.table-scroll-area::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+.table-scroll-area::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.02);
+}
+.table-scroll-area::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.5);
+    border-radius: 10px;
+}
+.table-scroll-area::-webkit-scrollbar-thumb:hover {
+    background: var(--primary);
+}
+
+/* ==========================================================================
+   10. SEARCH BOX FRAMEWORK
+   ========================================================================== */
+.search-flex-grow {
+    flex: 1;
+    min-width: 240px;
+}
+
+.search-input-wide {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.search-input-wide::placeholder {
+    color: #94a3b8;
+    font-size: 0.8rem;
+}
+
+/* --- CHARTS / REPORT CONTAINER CODES --- */
+.panel-report-layout {
+    flex-shrink: 0;
+}
