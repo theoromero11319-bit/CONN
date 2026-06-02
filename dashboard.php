@@ -36,7 +36,7 @@ $schemaCheckQuery = "
 sqlsrv_query($conn, $schemaCheckQuery);
 
 
-// --- POST CONTROLLER: SUBMIT MGH DELAY LOGS (Restriction Layer: Encoder / Admin Only) ---
+// --- POST CONTROLLER: SUBMIT MGH DELAY LOGS ---
 $updateSuccess = false;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_log_delay'])) {
     
@@ -75,7 +75,6 @@ $censusStartDate = '2024-01-01 00:00:00';
 // =========================================================================
 // SHIFT BOUNDARY CONFIGURATOR (8:00 AM TO 7:59:59 AM ENGINE)
 // =========================================================================
-// 1. Calculate boundaries for "Today's Live Shift" (Now perfectly synced to Manila time)
 if (date('H') >= 8) {
     $todayShiftStart = date('Y-m-d 08:00:00');
     $todayShiftEnd   = date('Y-m-d 07:59:59', strtotime('+1 day'));
@@ -84,21 +83,18 @@ if (date('H') >= 8) {
     $todayShiftEnd   = date('Y-m-d 07:59:59');
 }
 
-// 2. Calculate boundaries for "Filtered Target Registry Date"
 $filterRegStart  = date('Y-m-d 08:00:00', strtotime($regDateVal));
 $filterRegEnd    = date('Y-m-d 07:59:59', strtotime($regDateVal . ' +1 day'));
 
-// 3. Calculate boundaries for "Filtered MGH Date"
 $filterMghStart  = date('Y-m-d 08:00:00', strtotime($mghDateVal));
 $filterMghEnd    = date('Y-m-d 07:59:59', strtotime($mghDateVal . ' +1 day'));
 
-// 4. Calculate boundaries for "Filtered Discharge Date"
 $filterDischStart = date('Y-m-d 08:00:00', strtotime($dischDateVal));
 $filterDischEnd   = date('Y-m-d 07:59:59', strtotime($dischDateVal . ' +1 day'));
 
 
 // =========================================================================
-// ENGINE 1: TODAY'S STATIC REAL-TIME VALUES (ROW 1 - 8AM TO 8AM WINDOW)
+// ENGINE 1: TODAY'S STATIC REAL-TIME VALUES (ROW 1)
 // =========================================================================
 $todayTrafficQuery = "
     SELECT COUNT(*) as total FROM (
@@ -132,10 +128,7 @@ $todayDischQuery = "
 $todayDischQueryStmt = sqlsrv_query($conn, $todayDischQuery, [$todayShiftStart, $todayShiftEnd, $censusStartDate]);
 $todayDischargedCount = ($todayDischQueryStmt !== false && $row = sqlsrv_fetch_array($todayDischQueryStmt, SQLSRV_FETCH_ASSOC)) ? $row['total'] : 0;
 
-$mghPercentage = ($todayActiveCensus > 0) ? round(($todayMghCensus / $todayActiveCensus) * 100, 1) : 0;
 $standardActive = $todayActiveCensus - $todayMghCensus;
-
-// --- EXEC SUMMARY SHARE RATE ENGINE ---
 $totalShiftVolume = $todayActiveCensus + $todayDischargedCount;
 $activeBluePct  = ($totalShiftVolume > 0) ? round(($standardActive / $totalShiftVolume) * 100, 1) : 0;
 $mghYellowPct   = ($totalShiftVolume > 0) ? round(($todayMghCensus / $totalShiftVolume) * 100, 1) : 0;
@@ -143,7 +136,7 @@ $dischRedPct    = ($totalShiftVolume > 0) ? round(($todayDischargedCount / $tota
 
 
 // =========================================================================
-// ENGINE 2: DYNAMIC FILTERABLE VALUES (ROW 2 - 8AM TO 8AM WINDOW)
+// ENGINE 2: DYNAMIC FILTERABLE VALUES (ROW 2)
 // =========================================================================
 $patientRoster = [];
 $masterTrafficQuery = "
@@ -182,21 +175,14 @@ $baseCensusSQL = "
     LEFT JOIN [LiveDB_MSHAP].[dbo].[psPatRegisters] sub
         ON main.PK_psPatRegisters = sub.PK_psPatRegisters
     LEFT JOIN (
-        SELECT 
-            FK_psPatRegisters,
-            SUM(ISNULL(debit, 0)) - SUM(ISNULL(Credit, 0)) as BalanceDue
-        FROM [LiveDB_MSHAP].[dbo].[vwreportSOAHB]
-        WHERE FK_psPatRegisters IS NOT NULL
-        GROUP BY FK_psPatRegisters
+        SELECT FK_psPatRegisters, SUM(ISNULL(debit, 0)) - SUM(ISNULL(Credit, 0)) as BalanceDue
+        FROM [LiveDB_MSHAP].[dbo].[vwreportSOAHB] WHERE FK_psPatRegisters IS NOT NULL GROUP BY FK_psPatRegisters
     ) soa ON main.PK_psPatRegisters = soa.FK_psPatRegisters
     LEFT JOIN (
-        SELECT 
-            FK_psPatRegisters,
+        SELECT FK_psPatRegisters,
             SUM(CASE WHEN pattrantype IN ('CHARGES', 'DEBIT', 'CHARGE', 'ROOM', 'ROOM CHARGES', 'PROFESSIONAL FEE') THEN (ISNULL(HospitallBill, 0) + ISNULL(ProfessionalFee, 0)) ELSE 0 END) -
             SUM(CASE WHEN pattrantype IN ('PAYMENT', 'CREDIT', 'CREDIT NOTE', 'CN', 'BENEFIT', 'PHILHEALTH', 'PHIC') THEN (ISNULL(HospitallBill, 0) + ISNULL(ProfessionalFee, 0)) ELSE 0 END) as LiveBalance
-        FROM [LiveDB_MSHAP].[dbo].[vwBillingDtls]
-        WHERE FK_psPatRegisters IS NOT NULL
-        GROUP BY FK_psPatRegisters
+        FROM [LiveDB_MSHAP].[dbo].[vwBillingDtls] WHERE FK_psPatRegisters IS NOT NULL GROUP BY FK_psPatRegisters
     ) live_bill ON main.PK_psPatRegisters = live_bill.FK_psPatRegisters
 ";
 
@@ -212,25 +198,17 @@ while ($snapshotCensusStmt !== false && $row = sqlsrv_fetch_array($snapshotCensu
     $row['_Timestamp'] = $row['TxDateTime'] instanceof DateTime ? $row['TxDateTime']->getTimestamp() : strtotime($row['TxDateTime']);
     $censusRoster[] = $row;
 }
-
-usort($censusRoster, function($a, $b) {
-    return $b['_Timestamp'] - $a['_Timestamp'];
-});
+usort($censusRoster, function($a, $b) { return $b['_Timestamp'] - $a['_Timestamp']; });
 $filteredActiveCensus = count($censusRoster);
 
-// Determine targets based on conditional checkbox parameters
 $targetMghStart = $useMghDate ? $filterMghStart : $filterRegStart;
 $targetMghEnd   = $useMghDate ? $filterMghEnd : $filterRegEnd;
 
 $snapshotMghQuery = "
     SELECT COUNT(*) as historical_mgh 
     FROM [LiveDB_MSHAP].[dbo].[vwInpatientMstrList] main
-    INNER JOIN [LiveDB_MSHAP].[dbo].[psPatRegisters] sub 
-        ON main.PK_psPatRegisters = sub.PK_psPatRegisters
-    WHERE main.DischargeDate IS NULL 
-      AND main.RegistryDate <= ?
-      AND sub.mghdatetime >= ? AND sub.mghdatetime <= ?
-      AND main.RegistryDate >= ?
+    INNER JOIN [LiveDB_MSHAP].[dbo].[psPatRegisters] sub ON main.PK_psPatRegisters = sub.PK_psPatRegisters
+    WHERE main.DischargeDate IS NULL AND main.RegistryDate <= ? AND sub.mghdatetime >= ? AND sub.mghdatetime <= ? AND main.RegistryDate >= ?
 ";
 $snapshotMghStmt = sqlsrv_query($conn, $snapshotMghQuery, [$targetMghEnd, $targetMghStart, $targetMghEnd, $censusStartDate]);
 $filteredMghCount = ($snapshotMghStmt !== false && $row = sqlsrv_fetch_array($snapshotMghStmt, SQLSRV_FETCH_ASSOC)) ? $row['historical_mgh'] : 0;
@@ -239,8 +217,7 @@ $targetDischStart = $useDischDate ? $filterDischStart : $filterRegStart;
 $targetDischEnd   = $useDischDate ? $filterDischEnd : $filterRegEnd;
 
 $historyQuery = "
-    SELECT COUNT(*) as period_discharges 
-    FROM [LiveDB_MSHAP].[dbo].[vwInpatientMstrList]
+    SELECT COUNT(*) as period_discharges FROM [LiveDB_MSHAP].[dbo].[vwInpatientMstrList]
     WHERE DischargeDate >= ? AND DischargeDate <= ? AND RegistryDate >= ?
 ";
 $historyStmt = sqlsrv_query($conn, $historyQuery, [$targetDischStart, $targetDischEnd, $censusStartDate]);
@@ -271,6 +248,105 @@ $filteredDischargedCount = ($historyStmt !== false && $row = sqlsrv_fetch_array(
         .mgh-btn-save:hover { background: #1e293b; }
         .read-only-reason-box { background: #f8fafc; border-left: 3px solid #d97706; padding: 6px 10px; font-size: 0.8rem; color: #475569; border-radius: 0 4px 4px 0; margin-top: 4px; font-style: italic; }
         .badge-role-indicator { font-weight: 700; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; }
+
+        /* --- NEW MODERN DESIGN ENGINE FOR DATE FILTER PANEL --- */
+        .modern-filter-panel {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-top: 4px solid #2563eb;
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+        }
+        .modern-filter-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: #1e293b;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .modern-filter-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr) auto;
+            gap: 1.25rem;
+            align-items: end;
+        }
+        @media (max-width: 1024px) {
+            .modern-filter-grid { grid-template-columns: 1fr; gap: 1rem; }
+            .modern-btn-container { text-align: right; }
+        }
+        .filter-group-box {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 0.75rem;
+            transition: all 0.2s ease;
+        }
+        .filter-group-box:focus-within {
+            border-color: #3b82f6;
+            background: #ffffff;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        .modern-filter-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #334155;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            user-select: none;
+        }
+        .modern-filter-label input[type="checkbox"] {
+            width: 15px;
+            height: 15px;
+            accent-color: #2563eb;
+            cursor: pointer;
+        }
+        .modern-date-input {
+            width: 100%;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 8px 10px;
+            font-size: 0.875rem;
+            color: #0f172a;
+            font-family: 'Inter', sans-serif;
+            background-color: #ffffff;
+            outline: none;
+            box-sizing: border-box;
+            transition: border-color 0.15s ease;
+        }
+        .modern-date-input:focus {
+            border-color: #2563eb;
+        }
+        .modern-btn-submit {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            color: #ffffff;
+            border: none;
+            height: 42px;
+            padding: 0 1.75rem;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+        .modern-btn-submit:hover {
+            background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(37, 99, 235, 0.3);
+        }
+        .modern-btn-submit:active {
+            transform: translateY(0);
+        }
     </style>
 </head>
 <body>
@@ -329,32 +405,40 @@ $filteredDischargedCount = ($historyStmt !== false && $row = sqlsrv_fetch_array(
                 </div>
             </div>
 
-            <div class="panel" style="padding:1rem; margin-bottom:1.5rem; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;">
-                <form action="dashboard.php" method="GET" style="display: grid; grid-template-columns: repeat(3, 1fr) auto; gap: 0.75rem; align-items: flex-end;">
+            <div class="modern-filter-panel">
+                <div class="modern-filter-title">⚙️ Registry Parameters Control Console</div>
+                <form action="dashboard.php" method="GET">
                     <input type="hidden" name="filter_submitted" value="1">
-                    
-                    <div style="display:flex; flex-direction:column; gap:4px; padding:4px;">
-                        <label style="font-size:0.75rem; font-weight:700; color:#475569;">
-                            <input type="checkbox" name="use_registry" <?php echo $useRegistry ? 'checked' : ''; ?>> Filter Target Date (8AM-8AM)
-                        </label>
-                        <input type="date" name="reg_date_val" value="<?php echo htmlspecialchars($regDateVal); ?>" style="border:1px solid #cbd5e1; border-radius:6px; padding:6px; font-size:0.85rem; width:100%;">
+                    <div class="modern-filter-grid">
+                        
+                        <div class="filter-group-box">
+                            <label class="modern-filter-label">
+                                <input type="checkbox" name="use_registry" <?php echo $useRegistry ? 'checked' : ''; ?>>
+                                Target Date (8AM-8AM)
+                            </label>
+                            <input type="date" name="reg_date_val" class="modern-date-input" value="<?php echo htmlspecialchars($regDateVal); ?>">
+                        </div>
+                        
+                        <div class="filter-group-box">
+                            <label class="modern-filter-label">
+                                <input type="checkbox" name="use_mgh_date" <?php echo $useMghDate ? 'checked' : ''; ?>>
+                                MGH Date (8AM-8AM)
+                            </label>
+                            <input type="date" name="mgh_date_val" class="modern-date-input" value="<?php echo htmlspecialchars($mghDateVal); ?>">
+                        </div>
+                        
+                        <div class="filter-group-box">
+                            <label class="modern-filter-label">
+                                <input type="checkbox" name="use_disch_date" <?php echo $useDischDate ? 'checked' : ''; ?>>
+                                Discharge Date (8AM-8AM)
+                            </label>
+                            <input type="date" name="disch_date_val" class="modern-date-input" value="<?php echo htmlspecialchars($dischDateVal); ?>">
+                        </div>
+                        
+                        <div class="modern-btn-container">
+                            <button type="submit" class="modern-btn-submit">Run Historical Filter</button>
+                        </div>
                     </div>
-                    
-                    <div style="display:flex; flex-direction:column; gap:4px; padding:4px;">
-                        <label style="font-size:0.75rem; font-weight:700; color:#475569;">
-                            <input type="checkbox" name="use_mgh_date" <?php echo $useMghDate ? 'checked' : ''; ?>> Filter MGH Date (8AM-8AM)
-                        </label>
-                        <input type="date" name="mgh_date_val" value="<?php echo htmlspecialchars($mghDateVal); ?>" style="border:1px solid #cbd5e1; border-radius:6px; padding:6px; font-size:0.85rem; width:100%;">
-                    </div>
-                    
-                    <div style="display:flex; flex-direction:column; gap:4px; padding:4px;">
-                        <label style="font-size:0.75rem; font-weight:700; color:#475569;">
-                            <input type="checkbox" name="use_disch_date" <?php echo $useDischDate ? 'checked' : ''; ?>> Filter Discharge Date (8AM-8AM)
-                        </label>
-                        <input type="date" name="disch_date_val" value="<?php echo htmlspecialchars($dischDateVal); ?>" style="border:1px solid #cbd5e1; border-radius:6px; padding:6px; font-size:0.85rem; width:100%;">
-                    </div>
-                    
-                    <button type="submit" class="btn-submit" style="height:40px; padding:0 1.5rem; border-radius:6px; font-weight:600; font-size:0.85rem;">Run Historical Filter</button>
                 </form>
             </div>
 
