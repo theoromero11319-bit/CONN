@@ -3,27 +3,17 @@
 $current_page = basename($_SERVER['PHP_SELF']);
 ?>
 
-
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enterprise Operations Dashboard</title>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-    <link rel="stylesheet" href="style.css">
-</head>
-<body>
-
-
- <?php
-$current_page = basename($_SERVER['PHP_SELF']);
-?>
 <div class="sidebar">
     <div class="sidebar-brand">
-        <div style="width:10px; height:10px; background:var(--primary); border-radius:50%;"></div>
-        M.SIMON HOSPITAL AND PHARMACY
+        <div class="brand-title-group">
+            <div style="width:10px; height:10px; background:var(--primary); border-radius:50%; flex-shrink:0;"></div>
+            <span>M. SIMON HOSPITAL & PHARMACY</span>
+        </div>
+        <div class="brand-address-text">
+            General Malvar Street, Poblacion, Ipil,<br>Zamboanga Sibugay
+        </div>
     </div>
+    
     <ul class="sidebar-menu">
         <li class="sidebar-item <?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>">
             <a href="dashboard.php">📊 MAIN DASHBOARD</a>
@@ -34,11 +24,19 @@ $current_page = basename($_SERVER['PHP_SELF']);
         <li class="sidebar-item <?php echo ($current_page == 'inpatients.php') ? 'active' : ''; ?>">
             <a href="inpatients.php">📋 INPATIENT</a>
         </li>
+        <li class="sidebar-item <?php echo ($current_page == 'breakdown.php') ? 'active' : ''; ?>">
+            <a href="breakdown.php" style="background: rgba(2, 132, 199, 0.05); color: var(--primary);">📂 FINANCIAL BREAKDOWN</a>
+        </li>
     </ul>
+
+    <div class="sidebar-motivation-widget">
+        <div class="motivation-tag">✨ System Mission</div>
+        <div class="motivation-quote">
+            "Your dedication transforms complex data into compassionate patient care. Keep up the excellent work today."
+        </div>
+    </div>
+
     <div class="sidebar-footer">
-        <a href="logout.php" class="btn-signout">Sign Out System</a>
+        <a href="logout.php" class="btn-signout" style="display: block; text-align: center;">Sign Out System</a>
     </div>
 </div>
-
-
-</body>
