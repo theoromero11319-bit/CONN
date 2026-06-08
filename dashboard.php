@@ -106,6 +106,7 @@ $todayTrafficQuery = "
 $todayTrafficStmt = sqlsrv_query($conn, $todayTrafficQuery, [$todayShiftStart, $todayShiftEnd, $todayShiftStart, $todayShiftEnd]);
 $todayTrafficCount = ($todayTrafficStmt !== false && $row = sqlsrv_fetch_array($todayTrafficStmt, SQLSRV_FETCH_ASSOC)) ? $row['total'] : 0;
 
+get_live_census:
 $liveQuery = "
     SELECT 
         SUM(CASE WHEN main.DischargeDate IS NULL THEN 1 ELSE 0 END) as live_bed_census,
@@ -204,24 +205,63 @@ $filteredActiveCensus = count($censusRoster);
 $targetMghStart = $useMghDate ? $filterMghStart : $filterRegStart;
 $targetMghEnd   = $useMghDate ? $filterMghEnd : $filterRegEnd;
 
+// --- UPGRADED MGH STRUCTURAL ENGINE ROSTER FETCH ---
+$mghRoster = [];
 $snapshotMghQuery = "
-    SELECT COUNT(*) as historical_mgh 
+    SELECT 
+        main.PK_psPatRegisters as CaseID, 
+        main.PatientId as PatientID, 
+        main.PatientFullname as PatientName,
+        main.RegistryDate as TxDateTime,
+        sub.mghdatetime as MghDateTime,
+        RTRIM(sub.MghDelayReason) as MghDelayReason,
+        ISNULL(COALESCE(soa.BalanceDue, live_bill.LiveBalance), 0) as BalanceDue
     FROM [LiveDB_MSHAP].[dbo].[vwInpatientMstrList] main
     INNER JOIN [LiveDB_MSHAP].[dbo].[psPatRegisters] sub ON main.PK_psPatRegisters = sub.PK_psPatRegisters
+    LEFT JOIN (
+        SELECT FK_psPatRegisters, SUM(ISNULL(debit, 0)) - SUM(ISNULL(Credit, 0)) as BalanceDue
+        FROM [LiveDB_MSHAP].[dbo].[vwreportSOAHB] WHERE FK_psPatRegisters IS NOT NULL GROUP BY FK_psPatRegisters
+    ) soa ON main.PK_psPatRegisters = soa.FK_psPatRegisters
+    LEFT JOIN (
+        SELECT FK_psPatRegisters,
+            SUM(CASE WHEN pattrantype IN ('CHARGES', 'DEBIT', 'CHARGE', 'ROOM', 'ROOM CHARGES', 'PROFESSIONAL FEE') THEN (ISNULL(HospitallBill, 0) + ISNULL(ProfessionalFee, 0)) ELSE 0 END) -
+            SUM(CASE WHEN pattrantype IN ('PAYMENT', 'CREDIT', 'CREDIT NOTE', 'CN', 'BENEFIT', 'PHILHEALTH', 'PHIC') THEN (ISNULL(HospitallBill, 0) + ISNULL(ProfessionalFee, 0)) ELSE 0 END) as LiveBalance
+        FROM [LiveDB_MSHAP].[dbo].[vwBillingDtls] WHERE FK_psPatRegisters IS NOT NULL GROUP BY FK_psPatRegisters
+    ) live_bill ON main.PK_psPatRegisters = live_bill.FK_psPatRegisters
     WHERE main.DischargeDate IS NULL AND main.RegistryDate <= ? AND sub.mghdatetime >= ? AND sub.mghdatetime <= ? AND main.RegistryDate >= ?
 ";
 $snapshotMghStmt = sqlsrv_query($conn, $snapshotMghQuery, [$targetMghEnd, $targetMghStart, $targetMghEnd, $censusStartDate]);
-$filteredMghCount = ($snapshotMghStmt !== false && $row = sqlsrv_fetch_array($snapshotMghStmt, SQLSRV_FETCH_ASSOC)) ? $row['historical_mgh'] : 0;
+while ($snapshotMghStmt !== false && $row = sqlsrv_fetch_array($snapshotMghStmt, SQLSRV_FETCH_ASSOC)) {
+    $row['_Timestamp'] = $row['MghDateTime'] instanceof DateTime ? $row['MghDateTime']->getTimestamp() : strtotime($row['MghDateTime']);
+    $mghRoster[] = $row;
+}
+usort($mghRoster, function($a, $b) { return $b['_Timestamp'] - $a['_Timestamp']; });
+$filteredMghCount = count($mghRoster);
+
 
 $targetDischStart = $useDischDate ? $filterDischStart : $filterRegStart;
 $targetDischEnd   = $useDischDate ? $filterDischEnd : $filterRegEnd;
 
+// --- UPGRADED DISCHARGE STRUCTURAL ENGINE ROSTER FETCH ---
+$dischargedRoster = [];
 $historyQuery = "
-    SELECT COUNT(*) as period_discharges FROM [LiveDB_MSHAP].[dbo].[vwInpatientMstrList]
+    SELECT 
+        PK_psPatRegisters as CaseID, 
+        PatientId as PatientID, 
+        PatientFullname as PatientName,
+        RegistryDate as TxDateTime,
+        DischargeDate as DischDateTime,
+        PatientType as CaseType
+    FROM [LiveDB_MSHAP].[dbo].[vwInpatientMstrList]
     WHERE DischargeDate >= ? AND DischargeDate <= ? AND RegistryDate >= ?
 ";
 $historyStmt = sqlsrv_query($conn, $historyQuery, [$targetDischStart, $targetDischEnd, $censusStartDate]);
-$filteredDischargedCount = ($historyStmt !== false && $row = sqlsrv_fetch_array($historyStmt, SQLSRV_FETCH_ASSOC)) ? $row['period_discharges'] : 0;
+while ($historyStmt !== false && $row = sqlsrv_fetch_array($historyStmt, SQLSRV_FETCH_ASSOC)) {
+    $row['_Timestamp'] = $row['DischDateTime'] instanceof DateTime ? $row['DischDateTime']->getTimestamp() : strtotime($row['DischDateTime']);
+    $dischargedRoster[] = $row;
+}
+usort($dischargedRoster, function($a, $b) { return $b['_Timestamp'] - $a['_Timestamp']; });
+$filteredDischargedCount = count($dischargedRoster);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -458,16 +498,16 @@ $filteredDischargedCount = ($historyStmt !== false && $row = sqlsrv_fetch_array(
                     <span class="f-sub" style="color: #10b981; font-weight:600;">Click to view active pool with operational auditing options</span>
                 </div>
 
-                <div class="filter-metric-card">
-                    <span class="f-lbl">⚡ MGH Logs in View</span>
+                <div class="filter-metric-card accordion-trigger-btn" id="toggleMghDropdown" style="border-left: 4px solid #d97706;">
+                    <span class="f-lbl">⚡ MGH Logs in View ▼</span>
                     <span class="f-val"><?php echo number_format($filteredMghCount); ?></span>
-                    <span class="f-sub">Active MGH status on target date</span>
+                    <span class="f-sub" style="color: #d97706; font-weight:600;">Click to view target MGH operational logs</span>
                 </div>
 
-                <div class="filter-metric-card">
-                    <span class="f-lbl">🏁 Checked Out Discharges</span>
+                <div class="filter-metric-card accordion-trigger-btn" id="toggleDischargedDropdown" style="border-left: 4px solid #ef4444;">
+                    <span class="f-lbl">🏁 Checked Out Discharges ▼</span>
                     <span class="f-val"><?php echo number_format($filteredDischargedCount); ?></span>
-                    <span class="f-sub">Processed in execution time-frame</span>
+                    <span class="f-sub" style="color: #ef4444; font-weight:600;">Click to view complete discharge list</span>
                 </div>
             </div>
 
@@ -605,6 +645,131 @@ $filteredDischargedCount = ($historyStmt !== false && $row = sqlsrv_fetch_array(
                 </div>
             </div>
 
+            <div class="patient-dropdown-panel" id="mghDropdownPanel">
+                <h3 style="margin:0 0 1rem 0; font-size:1.05rem; font-weight:700; color:#0f172a; border-bottom:1px solid #d97706; padding-bottom:0.5rem;">
+                    Target Date MGH Audit Log (<?php echo htmlspecialchars($useMghDate ? $mghDateVal : $regDateVal); ?> Shift Frame)
+                </h3>
+                <?php if (!empty($mghRoster)): ?>
+                    <table class="roster-table" id="sortableMghTable">
+                        <thead>
+                            <tr>
+                                <th class="no-sort" style="cursor:default; width:45px; text-align:center;">#</th>
+                                <th onclick="sortTable('sortableMghTable', 1, 'text')">Patient Name Field</th>
+                                <th onclick="sortTable('sortableMghTable', 2, 'text')">Patient ID / Account</th>
+                                <th onclick="sortTable('sortableMghTable', 3, 'text')">Case ID Reference</th>
+                                <th onclick="sortTable('sortableMghTable', 4, 'date')">MGH Flag Timestamp</th>
+                                <th class="no-sort">Tracking Exception / MGH Delay Verification</th>
+                                <th onclick="sortTable('sortableMghTable', 6, 'currency')" style="text-align: right; padding-right: 1.5rem;">Balance Due</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php 
+                            $mghRowIndex = 1;
+                            foreach ($mghRoster as $mPat): 
+                                $formattedMghDate = $mPat['MghDateTime'] instanceof DateTime ? $mPat['MghDateTime']->format('Y-m-d h:i A') : $mPat['MghDateTime'];
+                                $balanceRaw = (float)($mPat['BalanceDue'] ?? 0);
+                                
+                                if ($balanceRaw > 0) {
+                                    $balanceStyle = 'color: #ef4444; font-weight: 700;';
+                                } elseif ($balanceRaw < 0) {
+                                    $balanceStyle = 'color: #2563eb; font-weight: 700;';
+                                } else {
+                                    $balanceStyle = 'color: #10b981; font-weight: 600;';
+                                }
+                            ?>
+                                <tr>
+                                    <td class="row-idx-cell"><?php echo $mghRowIndex++; ?></td>
+                                    <td style="font-weight:700; color:#0f172a;"><?php echo htmlspecialchars($mPat['PatientName']); ?></td>
+                                    <td style="font-family:monospace; color:#334155; font-weight:600;"><?php echo htmlspecialchars($mPat['PatientID'] ?? 'N/A'); ?></td>
+                                    <td style="color:#475569; font-size:0.85rem;"><?php echo htmlspecialchars($mPat['CaseID']); ?></td>
+                                    <td style="color:#d97706; font-weight:600;"><?php echo htmlspecialchars($formattedMghDate); ?></td>
+                                    
+                                    <td>
+                                        <?php if (strtoupper($userRole) === 'ENCODER' || strtoupper($userRole) === 'ADMIN'): ?>
+                                            <form action="dashboard.php" method="POST" class="mgh-delay-form">
+                                                <input type="hidden" name="action_log_delay" value="1">
+                                                <input type="hidden" name="target_case_id" value="<?php echo (int)$mPat['CaseID']; ?>">
+                                                <div class="mgh-delay-input-group">
+                                                    <input type="text" name="mgh_delay_reason" class="mgh-input-field" 
+                                                           placeholder="e.g., Awaiting PhilHealth/LOA confirmation" 
+                                                           value="<?php echo htmlspecialchars($mPat['MghDelayReason'] ?? ''); ?>">
+                                                    <button type="submit" class="mgh-btn-save">Commit</button>
+                                                </div>
+                                            </form>
+                                        <?php else: ?>
+                                            <?php if (!empty($mPat['MghDelayReason'])): ?>
+                                                <div class="read-only-reason-box">
+                                                    <strong>Reason:</strong> <?php echo htmlspecialchars($mPat['MghDelayReason']); ?>
+                                                </div>
+                                            <?php else: ?>
+                                                <div style="font-size:0.75rem; color:#94a3b8; font-style:italic; margin-top:2px;">
+                                                    No exception reason reported by system operators.
+                                                </div>
+                                            <?php endif; ?>
+                                        <?php endif; ?>
+                                    </td>
+                                    
+                                    <td style="text-align: right; padding-right: 1.5rem; <?php echo $balanceStyle; ?>" data-value="<?php echo $balanceRaw; ?>">
+                                        ₱<?php echo number_format($balanceRaw, 2); ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php else: ?>
+                    <div style="text-align:center; padding:2rem; color:#64748b; font-weight:500;">
+                        🔍 No active May-Go-Home parameters matched within this specific tracking frame selection.
+                    </div>
+                <?php endif; ?>
+                <div style="text-align:right; margin-top:1rem;">
+                    <button id="closeMghPanelBtn" style="background:#d97706; color:#fff; border:none; padding:6px 12px; border-radius:4px; font-weight:600; cursor:pointer; font-size:0.8rem;">Close Logs</button>
+                </div>
+            </div>
+
+            <div class="patient-dropdown-panel" id="dischargedDropdownPanel">
+                <h3 style="margin:0 0 1rem 0; font-size:1.05rem; font-weight:700; color:#0f172a; border-bottom:1px solid #ef4444; padding-bottom:0.5rem;">
+                    Target Date Cleared Out Discharges List (<?php echo htmlspecialchars($useDischDate ? $dischDateVal : $regDateVal); ?> Shift Frame)
+                </h3>
+                <?php if (!empty($dischargedRoster)): ?>
+                    <table class="roster-table" id="sortableDischargedTable">
+                        <thead>
+                            <tr>
+                                <th class="no-sort" style="cursor:default; width:45px; text-align:center;">#</th>
+                                <th onclick="sortTable('sortableDischargedTable', 1, 'text')">Patient Name Field</th>
+                                <th onclick="sortTable('sortableDischargedTable', 2, 'text')">Patient ID / Account</th>
+                                <th onclick="sortTable('sortableDischargedTable', 3, 'text')">Case ID Reference</th>
+                                <th onclick="sortTable('sortableDischargedTable', 4, 'date')">Admission Date/Time</th>
+                                <th onclick="sortTable('sortableDischargedTable', 5, 'date')">Discharge Processing Stamp</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php 
+                            $dischRowIndex = 1;
+                            foreach ($dischargedRoster as $dPat): 
+                                $formattedAdmDate = $dPat['TxDateTime'] instanceof DateTime ? $dPat['TxDateTime']->format('Y-m-d h:i A') : $dPat['TxDateTime'];
+                                $formattedDischDate = $dPat['DischDateTime'] instanceof DateTime ? $dPat['DischDateTime']->format('Y-m-d h:i A') : $dPat['DischDateTime'];
+                            ?>
+                                <tr>
+                                    <td class="row-idx-cell"><?php echo $dischRowIndex++; ?></td>
+                                    <td style="font-weight:700; color:#0f172a;"><?php echo htmlspecialchars($dPat['PatientName']); ?></td>
+                                    <td style="font-family:monospace; color:#334155; font-weight:600;"><?php echo htmlspecialchars($dPat['PatientID'] ?? 'N/A'); ?></td>
+                                    <td style="color:#475569; font-size:0.85rem;"><?php echo htmlspecialchars($dPat['CaseID']); ?></td>
+                                    <td style="color:#64748b;"><?php echo htmlspecialchars($formattedAdmDate); ?></td>
+                                    <td style="color:#ef4444; font-weight:600;"><?php echo htmlspecialchars($formattedDischDate); ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php else: ?>
+                    <div style="text-align:center; padding:2rem; color:#64748b; font-weight:500;">
+                        🔍 No finalized patient checkout records discovered within this metric frame framework.
+                    </div>
+                <?php endif; ?>
+                <div style="text-align:right; margin-top:1rem;">
+                    <button id="closeDischargedPanelBtn" style="background:#ef4444; color:#fff; border:none; padding:6px 12px; border-radius:4px; font-weight:600; cursor:pointer; font-size:0.8rem;">Close Ledger</button>
+                </div>
+            </div>
+
             <div class="panel-report-layout" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1.5rem; margin-bottom:3rem;">
                 <div class="card" style="background:#fff; padding:1.5rem; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:380px; border:1px solid var(--border-color);">
                     <h4 style="margin:0 0 1.5rem 0; color:#1e293b; font-weight:700; font-size:1rem; text-align:center; width:100%;">Daily Census & Discharge Profile</h4>
@@ -630,7 +795,7 @@ $filteredDischargedCount = ($historyStmt !== false && $row = sqlsrv_fetch_array(
                                 <td style="padding:0.75rem 0; text-align:right; font-weight:700; color:#3b82f6;"><?php echo number_format($standardActive); ?> (<?php echo $activeBluePct; ?>%)</td>
                             </tr>
                             <tr style="border-bottom:1px solid #f1f5f9;">
-                                <td style="padding:0.75rem 0; color:#d97706; font-weight:600;">🟡 Pending MGH Clearance</td>
+                                <td style="padding:0.75rem 0; color:#eab308; font-weight:600;">🟡 Pending MGH Clearance</td>
                                 <td style="padding:0.75rem 0; text-align:right; font-weight:700; color:#d97706;"><?php echo number_format($todayMghCensus); ?> (<?php echo $mghYellowPct; ?>%)</td>
                             </tr>
                             <tr style="border-bottom:1px solid #f1f5f9;">
@@ -641,7 +806,7 @@ $filteredDischargedCount = ($historyStmt !== false && $row = sqlsrv_fetch_array(
                     </div>
                     <div style="background:#f8fafc; padding:1rem; border-radius:6px; border-left:4px solid #2563eb;">
                         <h5 style="margin:0 0 0.25rem 0; font-size:0.85rem; color:#0f172a; font-weight:700;">Live Floor Volume Assessment</h5>
-                        <p style="margin:0; font-size:0.8rem; color:#64748b;">Percentages show individual volume share out of the global shift metrics footprint ($totalShiftVolume total instances handled) to remain perfectly aligned with your pie chart visualization slices.</p>
+                        <p style="margin:0; font-size:0.8rem; color:#64748b;">Percentages show individual volume share out of the global shift metrics footprint (<?php echo $totalShiftVolume; ?> total instances handled) to remain perfectly aligned with your pie chart visualization slices.</p>
                     </div>
                 </div>
             </div> 
@@ -657,17 +822,47 @@ $filteredDischargedCount = ($historyStmt !== false && $row = sqlsrv_fetch_array(
         const cPanel = document.getElementById('censusDropdownPanel');
         const cClose = document.getElementById('closeCensusPanelBtn');
 
+        // NEW UI ELEMENTS FOR ROW 2 MODIFICATIONS
+        const mCard = document.getElementById('toggleMghDropdown');
+        const mPanel = document.getElementById('mghDropdownPanel');
+        const mClose = document.getElementById('closeMghPanelBtn');
+
+        const dCard = document.getElementById('toggleDischargedDropdown');
+        const dPanel = document.getElementById('dischargedDropdownPanel');
+        const dClose = document.getElementById('closeDischargedPanelBtn');
+
+        // EXCLUSIVE INTERACTIVE ACCORDION MATRIX ENGINE
         tCard.addEventListener('click', () => {
             tPanel.classList.toggle('open');
             cPanel.classList.remove('open');
+            mPanel.classList.remove('open');
+            dPanel.classList.remove('open');
         });
         tClose.addEventListener('click', () => tPanel.classList.remove('open'));
 
         cCard.addEventListener('click', () => {
             cPanel.classList.toggle('open');
             tPanel.classList.remove('open');
+            mPanel.classList.remove('open');
+            dPanel.classList.remove('open');
         });
         cClose.addEventListener('click', () => cPanel.classList.remove('open'));
+
+        mCard.addEventListener('click', () => {
+            mPanel.classList.toggle('open');
+            tPanel.classList.remove('open');
+            cPanel.classList.remove('open');
+            dPanel.classList.remove('open');
+        });
+        mClose.addEventListener('click', () => mPanel.classList.remove('open'));
+
+        dCard.addEventListener('click', () => {
+            dPanel.classList.toggle('open');
+            tPanel.classList.remove('open');
+            cPanel.classList.remove('open');
+            mPanel.classList.remove('open');
+        });
+        dClose.addEventListener('click', () => dPanel.classList.remove('open'));
 
         let sortDirections = {};
         

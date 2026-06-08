@@ -24,9 +24,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
         <li class="sidebar-item <?php echo ($current_page == 'inpatients.php') ? 'active' : ''; ?>">
             <a href="inpatients.php">📋 INPATIENT</a>
         </li>
-        <li class="sidebar-item <?php echo ($current_page == 'breakdown.php') ? 'active' : ''; ?>">
-            <a href="breakdown.php" style="background: rgba(2, 132, 199, 0.05); color: var(--primary);">📂 FINANCIAL BREAKDOWN</a>
-        </li>
+      
     </ul>
 
     <div class="sidebar-motivation-widget">
